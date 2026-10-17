@@ -1,4 +1,4 @@
-// xcoder:version 4 | xcoder:task task-a3052a | xcoder:updated 2026-10-17T13:03:29.460Z | xcoder:subtask code-st-b3a0c8
+// xcoder:version 1 | xcoder:task task-1f0256 | xcoder:updated 2026-10-17T14:35:18.633Z | xcoder:subtask code-st-9de79a
 // Tests for the intended post-cleanup Kooder architecture.
 //
 // Oracle for these assertions is the task goal, not the current code:
@@ -84,8 +84,12 @@ describe('Kooder rebrand', () => {
 
     expect(pkg.bin.kooder).toBe('./dist/cli-worker.js');
     expect(pkg.bin.worker).toBe('./dist/cli-worker.js');
-    // Exactly two bin keys: the pre-rebrand bin must not survive as an alias.
-    expect(Object.keys(pkg.bin).sort()).toEqual(['kooder', 'worker']);
+    // `litecoder` is a deliberate third bin: a thin, no-tools planner CLI on
+    // top of the same worker engine. It is NOT a pre-rebrand alias, so the
+    // intent this assertion protects (no `koober` bin surviving) is unchanged
+    // — see .xcoder/backlog/litecoder-design.md §0.
+    expect(pkg.bin.litecoder).toBe('./dist/litecoder/cli.js');
+    expect(Object.keys(pkg.bin).sort()).toEqual(['kooder', 'litecoder', 'worker']);
     expect(pkg.bin).not.toHaveProperty('koober');
   });
 

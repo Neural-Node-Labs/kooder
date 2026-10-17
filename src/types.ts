@@ -1,4 +1,4 @@
-// xcoder:version 1 | xcoder:task task-7fc1d4 | xcoder:updated 2026-10-17T12:33:59.006Z | xcoder:subtask code-st-1a0810
+// xcoder:version 1 | xcoder:task task-1f0256 | xcoder:updated 2026-10-17T14:35:14.939Z | xcoder:subtask code-st-9de79a
 /**
  * Core contracts. Everything else in this codebase is built around these
  * shapes — the same principle Agent Factory's `af-shared-contracts` repo
@@ -24,21 +24,33 @@ export type SdlcStage =
   | "conversation"
   | "quality_gate";
 
-export type Role =
-  | "requirements-analyst"
-  | "architect"
-  | "programmer"
-  | "refactorer"
-  | "tester"
-  | "ui-api-tester"
-  | "technical-writer"
-  | "devops"
-  | "conversation"
-  | "business-analyst"
-  | "defect-manager"
-  | "scrum-master"
-  | "system-architect"
-  | "security-lead";
+/**
+ * Every role, as a runtime tuple.
+ *
+ * The union is derived from this array rather than declared separately, so
+ * the two can never drift. The array exists because model output is
+ * validated at a trust boundary (`litecoder/plan-schema.ts`) and `z.enum()`
+ * needs a runtime tuple — the same values, same order, type-identical to the
+ * hand-written union that used to live here.
+ */
+export const ROLES = [
+  "requirements-analyst",
+  "architect",
+  "programmer",
+  "refactorer",
+  "tester",
+  "ui-api-tester",
+  "technical-writer",
+  "devops",
+  "conversation",
+  "business-analyst",
+  "defect-manager",
+  "scrum-master",
+  "system-architect",
+  "security-lead",
+] as const;
+
+export type Role = (typeof ROLES)[number];
 
 // The four engines from the wider Agent Factory design. Kooder fully
 // implements `react-v1` (the default and the only one every role actually

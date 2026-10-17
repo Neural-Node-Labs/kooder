@@ -5,7 +5,8 @@
   "type": "module",
   "bin": {
     "kooder": "./dist/cli-worker.js",
-    "worker": "./dist/cli-worker.js"
+    "worker": "./dist/cli-worker.js",
+    "litecoder": "./dist/litecoder/cli.js"
   },
   "scripts": {
     "kooder:link": "npm link",

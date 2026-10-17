@@ -1,4 +1,4 @@
-// xcoder:version 2 | xcoder:task task-a3052a | xcoder:updated 2026-10-17T13:11:37.019Z | xcoder:subtask test-st-746275
+// xcoder:version 1 | xcoder:task task-1f0256 | xcoder:updated 2026-10-17T14:39:36.844Z | xcoder:subtask code-st-9de79a
 // Tests for the `rebrand to kooder` goal, written against the INTENDED
 // behaviour rather than the current implementation:
 //   * the product name on every user-facing surface is "kooder" / "Kooder"
@@ -123,12 +123,16 @@ describe('Kooder rebrand — single source of version truth', () => {
 });
 
 describe('Kooder rebrand — published bins', () => {
-  it('publishes exactly the kooder and worker bins, both on the worker CLI', () => {
+  it('publishes the kooder and worker bins on the worker CLI, plus the litecoder bin', () => {
     const pkg = readPkg();
 
-    expect(Object.keys(pkg.bin).sort()).toEqual(['kooder', 'worker']);
+    // `litecoder` is a deliberate third bin (a no-tools planner CLI on top of
+    // the same worker engine), not a pre-rebrand alias — the assertion below
+    // still guarantees no legacy brand survived as a bin.
+    expect(Object.keys(pkg.bin).sort()).toEqual(['kooder', 'litecoder', 'worker']);
     expect(pkg.bin.kooder).toBe('./dist/cli-worker.js');
     expect(pkg.bin.worker).toBe('./dist/cli-worker.js');
+    expect(pkg.bin.litecoder).toBe('./dist/litecoder/cli.js');
   });
 
   it('carries no pre-rebrand bin alias', () => {
