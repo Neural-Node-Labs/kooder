@@ -1,0 +1,8 @@
+{
+  "provider": "deepseek",
+  "key": "sk-your-api-key",
+  "model": "deepseek-chat",
+  "env": {
+    "KOODER_EXTERNAL_SKILLS": "0"
+  }
+}
