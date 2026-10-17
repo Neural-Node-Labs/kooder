@@ -1,1 +1,20 @@
+/node_modules/
+
+/.agent/
+/.github/
 /.idea/
+/.log/
+/.reports/
+/dist/
+# Xcoder SDLC generated artifacts (managed by src/util/output-paths.ts)
+.reports/
+.tmp/
+.xcoder/
+!.xcoder/blueprint.md
+/.xcoder_archive0001/
+/dist-installer/
+# Kooder generated artifacts (managed by src/util/output-paths.ts)
+.kooder/
+.koober/
+!.kooder/blueprint.md
+!.koober/blueprint.md
