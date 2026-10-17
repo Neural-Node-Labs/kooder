@@ -7,6 +7,7 @@
  * Returns structured results including status, headers, body, and timing.
  */
 import { resolveCredential } from "./credential.js";
+import { safeFetch } from "./net-policy.js";
 
 export interface ApiTestResult {
   url: string;
@@ -108,12 +109,13 @@ export async function testApiEndpoint(opts: ApiTestOptions): Promise<ApiTestResu
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(targetUrl, {
+    // safeFetch: http(s) only, private/metadata destinations blocked (incl. via DNS and
+    // redirects), and Authorization is dropped on a cross-origin redirect.
+    const response = await safeFetch(targetUrl, {
       method,
       headers: fetchHeaders,
       body: fetchBody,
       signal: controller.signal,
-      redirect: "follow",
     });
 
     const durationMs = Date.now() - startTime;

@@ -39,7 +39,7 @@ const PROVIDER_ALIASES: Record<string, UserProvider> = {
 };
 
 /** Env names that could redirect execution or traffic — never settable from config. */
-const BLOCKED_ENV = /^(PATH|PATHEXT|NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|LD_.*|DYLD_.*|HOME|USERPROFILE|SHELL|COMSPEC|PYTHONPATH|BUN_.*|NPM_CONFIG_.*|(HTTPS?|ALL|NO)_PROXY)$/i;
+export const BLOCKED_ENV = /^(PATH|PATHEXT|NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|LD_.*|DYLD_.*|HOME|USERPROFILE|SHELL|COMSPEC|PYTHONPATH|BUN_.*|NPM_CONFIG_.*|(HTTPS?|ALL|NO)_PROXY)$/i;
 const SECRET_NAME = /(KEY|TOKEN|SECRET|PASSWORD)/i;
 
 export function userConfigPath(): string {

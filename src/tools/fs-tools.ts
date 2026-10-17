@@ -1,5 +1,6 @@
 // xcoder:version 10 | xcoder:task task-e6370a | xcoder:updated 2026-08-12T16:48:04.548Z | xcoder:subtask code-st-cd4444
 import { promises as fs } from "node:fs";
+import { resolveInWorkspaceSafe } from "./workspace-path.js";
 import path from "node:path";
 import {
   buildIndex,
@@ -20,14 +21,7 @@ export class WorkspaceEscapeError extends Error {}
 
 /** Every path a tool touches is resolved and pinned inside the workspace root. No `..` escapes. */
 function resolveInWorkspace(root: string, relPath: string): string {
-  const full = path.resolve(root, relPath);
-  const normalizedRoot = path.resolve(root) + path.sep;
-  if (full + path.sep !== normalizedRoot && !full.startsWith(normalizedRoot)) {
-    throw new WorkspaceEscapeError(
-      `path "${relPath}" resolves outside the workspace root — refusing.`
-    );
-  }
-  return full;
+  return resolveInWorkspaceSafe(root, relPath, (m) => new WorkspaceEscapeError(m));
 }
 
 export interface ReadFileResult {

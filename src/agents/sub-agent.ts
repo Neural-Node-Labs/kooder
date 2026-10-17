@@ -2,7 +2,7 @@
 import type { FileTouchEntry, RaoStep, SubtaskNode, SubtaskResult, TokenUsage } from "../types.js";
 import type { WksProtocolMap } from "../protocol/wks-protocol-manager.js";
 import { LlmClient, type LlmCompletion, type LlmMessage } from "../llm/client.js";
-import { buildAgentSystemPrompt, parseReactMessage } from "../protocol/react-contract.js";
+import { buildAgentSystemPrompt, parseReactMessage, fenceToolOutput } from "../protocol/react-contract.js";
 import { buildToolManifest, TOOL_MANIFEST, dispatchTool } from "../tools/tool-registry.js";
 import { ROLE_DIRECTIVES, type RoleDirective } from "../skills/directives.js";
 import { buildBylawContext } from "../skills/bylaw-context.js";
@@ -362,7 +362,9 @@ export class SubAgent {
       raoTrace.push({ thought, action: { tool, input }, observation });
       transcript.push({
         role: "user",
-        content: dup.warning ? `Observation: ${observation}\n\n${dup.warning}` : `Observation: ${observation}`,
+        content: dup.warning
+          ? `Observation: ${fenceToolOutput(tool, observation)}\n\n${dup.warning}`
+          : `Observation: ${fenceToolOutput(tool, observation)}`,
       });
     }
 

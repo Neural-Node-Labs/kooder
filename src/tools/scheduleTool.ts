@@ -201,12 +201,27 @@ async function removeScheduledWin(id: string): Promise<{ removed: boolean }> {
 
 /** Registers a recurring job: cron on POSIX, a translated Windows Task Scheduler task on
  *  win32, tagged with an id for later listing/removal. */
+const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const SAFE_CRON = /^[0-9*/,\-]+(?: +[0-9*/,\-]+){4}$/;
+
+/** id/cron/command end up on crontab lines — a newline in any of them would inject extra jobs. */
+function assertSafeScheduleInput(id: string | undefined, cronExpr: string | undefined, command: string): void {
+  if (id !== undefined && !SAFE_ID.test(id)) throw new Error(`invalid schedule id "${id}" (use letters, digits, '_' or '-')`);
+  if (cronExpr !== undefined && !SAFE_CRON.test(cronExpr.trim())) throw new Error(`invalid cron expression "${cronExpr}"`);
+  if (/[\r\n\0]/.test(command)) throw new Error("command must be a single line");
+}
+
 export async function scheduleCron(id: string, cronExpr: string, command: string): Promise<{ id: string; cronExpr: string }> {
+  assertSafeScheduleInput(id, cronExpr, command);
   return isWindows ? scheduleCronWin(id, cronExpr, command) : scheduleCronPosix(id, cronExpr, command);
 }
 
 /** Schedules a one-off command to run after `delaySeconds`, surviving beyond the current process. */
 export async function scheduleOnce(delaySeconds: number, command: string): Promise<{ scheduledFor: string }> {
+  if (!Number.isInteger(delaySeconds) || delaySeconds < 0 || delaySeconds > 31_536_000) {
+    throw new Error(`invalid delaySeconds "${delaySeconds}" (integer 0..31536000)`);
+  }
+  assertSafeScheduleInput(undefined, undefined, command);
   const child = isWindows
     ? spawn(
         "powershell.exe",

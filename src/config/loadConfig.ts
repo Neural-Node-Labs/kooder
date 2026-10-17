@@ -8,7 +8,7 @@ import os from "node:os";
 import { log } from "../util/logger.js";
 import { createKooderPaths } from "../util/kooder-paths.js";
 import { readKooderEnv } from "./env.js";
-import { applyUserConfig, getActiveUserConfig } from "./user-config.js";
+import { applyUserConfig, getActiveUserConfig, BLOCKED_ENV } from "./user-config.js";
 
 // ============================================================================
 // Environment Initialization (Must run before reading process.env)
@@ -25,7 +25,39 @@ function getAppDir(): string {
   return dir.includes("$bunfs") || dir.includes("~BUN") ? path.dirname(process.execPath) : dir;
 }
 
+/**
+ * Names a project-level `.env` may never set: anything that redirects where
+ * credentials are sent (SDK base-URL variables) or where Kooder reads its own
+ * trusted config from. These come on top of BLOCKED_ENV (PATH, NODE_OPTIONS, LD_*, proxies…).
+ */
+const PROJECT_ENV_BLOCKED = /^((KOODER|KOOBER|XCODER|RONIN)_(HOME|DIR|CONFIG_FILE|TRUST_PROJECT_CONFIG)|.*_BASE_URL|.*_API_BASE|.*_ENDPOINT)$/i;
+
+/**
+ * Loads one .env file WITHOUT trusting it: blocked names are skipped (with a
+ * warning), and variables exported in the real shell are never overridden.
+ * `projectLevel` marks the cwd file, which belongs to whatever repo the user
+ * happens to be standing in and is therefore the least trusted source.
+ */
+function applyEnvFile(file: string, shellEnv: ReadonlySet<string>, projectLevel: boolean): void {
+  let parsed: Record<string, string>;
+  try {
+    parsed = dotenv.parse(fs.readFileSync(file));
+  } catch {
+    return;
+  }
+  for (const [name, value] of Object.entries(parsed)) {
+    if (BLOCKED_ENV.test(name) || (projectLevel && PROJECT_ENV_BLOCKED.test(name))) {
+      process.stderr.write(`[kooder] ignoring ${name} from ${file} (not settable from a .env file)\n`);
+      continue;
+    }
+    if (shellEnv.has(name)) continue; // the real shell environment always wins
+    // Later (more specific) files override earlier .env files, but never the shell.
+    process.env[name] = value;
+  }
+}
+
 function loadKooderEnv(): void {
+  const shellEnv: ReadonlySet<string> = new Set(Object.keys(process.env));
   const envCandidates: string[] = [];
 
   // 1. App directory (where the kooder executable / app bundle lives)
@@ -50,14 +82,16 @@ function loadKooderEnv(): void {
   // Load global/system candidate .env files first
   for (const envPath of envCandidates) {
     if (fs.existsSync(envPath)) {
-      dotenv.config({ path: envPath });
+      applyEnvFile(envPath, shellEnv, false);
     }
   }
 
-  // 4. Current working directory .env (highest priority local overrides)
+  // 4. Current working directory .env — local overrides of the files above, but it is
+  //    untrusted input (it ships with whatever repo you cloned): it is filtered and can
+  //    never override the shell environment.
   const cwdEnvPath = path.join(process.cwd(), ".env");
   if (fs.existsSync(cwdEnvPath)) {
-    dotenv.config({ path: cwdEnvPath, override: true });
+    applyEnvFile(cwdEnvPath, shellEnv, true);
   }
 }
 
@@ -226,6 +260,63 @@ export function deepseekDefaultConfig(): LlmConfig {
  */
 export function loadLlmConfigFile(configPath?: string): LlmConfigFile {
   const resolved = configPath ?? createKooderPaths(process.cwd()).llmConfigPath();
+  // The default location lives inside the current project, i.e. it is untrusted unless the
+  // user opted in. An explicit configPath is a deliberate choice by the caller.
+  const untrusted = configPath === undefined && !isTrustedProjectConfig(resolved);
+  const out = readLlmConfigFile(resolved);
+  return untrusted ? sanitizeProjectLlmConfig(out, resolved) : out;
+}
+
+/** Provider hosts a project file may point at without opting in (plus loopback for local models). */
+const KNOWN_LLM_HOSTS = new Set([
+  "api.deepseek.com", "api.anthropic.com", "api.openai.com", "openrouter.ai", "api.groq.com",
+]);
+/** Env vars a project file may name as the API-key source. */
+const PROJECT_KEY_ENV = /^((KOODER|DEEPSEEK|ANTHROPIC|OPENAI|OPENROUTER|GROQ|OLLAMA)_API_KEY)$/;
+
+function isTrustedProjectConfig(file: string): boolean {
+  if (process.env.KOODER_TRUST_PROJECT_CONFIG === "1") return true;
+  const trustedRoots = [path.join(os.homedir(), ".kooder")];
+  const home = readKooderEnv("KOODER_HOME");
+  if (home) trustedRoots.push(home);
+  const resolved = path.resolve(file);
+  return trustedRoots.some((r) => resolved.startsWith(path.resolve(r) + path.sep));
+}
+
+function hostAllowed(baseUrl: string): boolean {
+  try {
+    const h = new URL(baseUrl).hostname.toLowerCase();
+    return KNOWN_LLM_HOSTS.has(h) || h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeBlock(block: unknown, where: string, file: string): void {
+  if (!block || typeof block !== "object") return;
+  const b = block as Record<string, unknown>;
+  if (typeof b.api_key_env === "string" && !PROJECT_KEY_ENV.test(b.api_key_env)) {
+    process.stderr.write(`[kooder] ${file}: ignoring ${where}.api_key_env "${b.api_key_env}" (project config may only name a provider API-key variable)\n`);
+    delete b.api_key_env;
+  }
+  if (typeof b.base_url === "string" && !hostAllowed(b.base_url)) {
+    process.stderr.write(`[kooder] ${file}: ignoring ${where}.base_url "${b.base_url}" — untrusted host. Move the file to ~/.kooder or set KOODER_TRUST_PROJECT_CONFIG=1 if you trust this project.\n`);
+    delete b.base_url;
+  }
+  if (b.fallback) sanitizeBlock(b.fallback, `${where}.fallback`, file);
+}
+
+/**
+ * A repo-supplied llm.yaml must not be able to aim your API key at a server of
+ * its choosing: strip unknown base_url hosts and non-provider api_key_env names.
+ */
+export function sanitizeProjectLlmConfig(file: LlmConfigFile, from: string): LlmConfigFile {
+  const f = file as unknown as Record<string, unknown>;
+  for (const name of ["default", ...AGENT_ROLES]) sanitizeBlock(f[name], name, from);
+  return file;
+}
+
+function readLlmConfigFile(resolved: string): LlmConfigFile {
   if (!fs.existsSync(resolved)) {
     return {};
   }

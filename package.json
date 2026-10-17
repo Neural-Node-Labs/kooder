@@ -1,7 +1,7 @@
 {
   "name": "kooder-cli",
   "version": "3.0.0",
-  "description": "Kooder — a ReAct-driven worker-agent CLI. One worker orchestrator, one agent, a workspace index as the source of truth.",
+  "description": "Kooder \u2014 a ReAct-driven worker-agent CLI. One worker orchestrator, one agent, a workspace index as the source of truth.",
   "type": "module",
   "bin": {
     "kooder": "./dist/cli-worker.js",
@@ -23,7 +23,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
     "@clack/prompts": "^0.7.0",
-    "@types/js-yaml": "^4.0.9",
     "cheerio": "^1.2.0",
     "cli-spinners": "^2.9.2",
     "commander": "^12.1.0",

@@ -18,3 +18,7 @@
 .koober/
 !.kooder/blueprint.md
 !.koober/blueprint.md
+.env
+.env.*
+!.env.example
+config.json

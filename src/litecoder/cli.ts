@@ -6,7 +6,8 @@
 // Deliberately minimal, like `cli-worker.ts`: parse, build clients, plan,
 // dispatch, print. No `run` subcommand, no `--task`, no `--subtask` — the goal
 // is the single positional argument (AC1, AC2).
-import "dotenv/config";
+// Filtered .env loading lives in loadConfig (never `dotenv/config`).
+import "../config/loadConfig.js";
 import { Command } from "commander";
 import path from "node:path";
 import { createLlmClient } from "../llm/factory.js";

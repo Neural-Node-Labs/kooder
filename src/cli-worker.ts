@@ -5,7 +5,8 @@
 // Deliberately minimal: parse, build one LLM client, run the orchestrator,
 // print the report. No stage flags, no healing flags, no steering, and no
 // spinner that could corrupt `--json` output.
-import "dotenv/config";
+// Loads .env files through the filtered loader in loadConfig (never `dotenv/config`: it would apply an untrusted project .env unfiltered).
+import "./config/loadConfig.js";
 import { Command } from "commander";
 import path from "node:path";
 import { promises as fs } from "node:fs";

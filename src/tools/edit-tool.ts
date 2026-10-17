@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { resolveInWorkspaceSafe } from "./workspace-path.js";
 import path from "node:path";
 import { upsertEntry } from "./workspace-index.js";
 import {
@@ -10,12 +11,7 @@ import { incrementFileVersion } from "../store/file-version-store.js";
 export class WorkspaceEscapeError extends Error {}
 
 function resolveInWorkspace(root: string, relPath: string): string {
-  const full = path.resolve(root, relPath);
-  const normalizedRoot = path.resolve(root) + path.sep;
-  if (full + path.sep !== normalizedRoot && !full.startsWith(normalizedRoot)) {
-    throw new WorkspaceEscapeError(`path "${relPath}" resolves outside the workspace root — refusing.`);
-  }
-  return full;
+  return resolveInWorkspaceSafe(root, relPath, (m) => new WorkspaceEscapeError(m));
 }
 
 function countOccurrences(haystack: string, needle: string): number {

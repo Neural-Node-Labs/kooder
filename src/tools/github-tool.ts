@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { resolveInWorkspaceSafe } from "./workspace-path.js";
 import path from "node:path";
 import { resolveCredential, redact } from "./credential.js";
 
@@ -11,18 +12,43 @@ function run(cmd: string, args: string[], cwd: string): Promise<{ ok: boolean; s
 }
 
 function resolveInWorkspace(root: string, relDir: string | undefined): string {
-  const full = path.resolve(root, relDir ?? ".");
-  const normalizedRoot = path.resolve(root) + path.sep;
-  if (full + path.sep !== normalizedRoot && !full.startsWith(normalizedRoot)) {
-    throw new Error(`"${relDir}" resolves outside the workspace root — refusing.`);
-  }
-  return full;
+  return resolveInWorkspaceSafe(root, relDir, (m) => new Error(m));
 }
 
 /** Embeds a token into an https remote URL only for the duration of one git invocation. */
-function withEmbeddedToken(url: string, token: string): string {
+function tokenHosts(): Set<string> {
+  const extra = (process.env.KOODER_GIT_TOKEN_HOSTS ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+  return new Set(["github.com", ...extra]);
+}
+
+/**
+ * The model supplies the URL, so the token must only ever be embedded for an
+ * allowlisted git host (github.com, plus KOODER_GIT_TOKEN_HOSTS for GHE). Anything
+ * else would hand the token to an arbitrary server.
+ */
+export function withEmbeddedToken(url: string, token: string): string {
   if (!url.startsWith("https://")) return url; // ssh remotes use the user's own key, nothing to embed
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    throw new Error(`invalid remote URL "${url}"`);
+  }
+  if (!tokenHosts().has(host)) {
+    throw new Error(`refusing to send a token to "${host}" (allowed: ${[...tokenHosts()].join(", ")}; extend with KOODER_GIT_TOKEN_HOSTS)`);
+  }
   return url.replace("https://", `https://x-access-token:${token}@`);
+}
+
+/** Reject anything git could parse as an option or a transport helper (ext::, file:, ...). */
+function validateRemoteUrl(url: string): string | null {
+  if (url.startsWith("-")) return "remote URL must not start with '-'";
+  if (/^(https:\/\/|ssh:\/\/|git@[\w.-]+:)/.test(url)) return null;
+  return "only https://, ssh:// and git@host:path remotes are allowed";
+}
+
+function validateRefName(name: string): string | null {
+  return name.startsWith("-") || /[\s\0]/.test(name) ? `invalid ref "${name}"` : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,7 +74,7 @@ export async function githubCreateRepo(input: GithubCreateRepoInput): Promise<Gi
   const ref = input.credentialRef ?? "GITHUB_TOKEN";
   let token: string;
   try {
-    token = resolveCredential(ref);
+    token = resolveCredential(ref, { allowGithub: true });
   } catch (e) {
     return { ok: false, detail: (e as Error).message };
   }
@@ -106,17 +132,20 @@ export async function githubClone(root: string, input: GithubCloneInput): Promis
     return { ok: false, detail: (e as Error).message };
   }
 
+  const badUrl = validateRemoteUrl(input.url);
+  if (badUrl) return { ok: false, detail: badUrl };
+
   let cloneUrl = input.url;
   const ref = input.credentialRef;
   if (ref) {
     try {
-      cloneUrl = withEmbeddedToken(input.url, resolveCredential(ref));
+      cloneUrl = withEmbeddedToken(input.url, resolveCredential(ref, { allowGithub: true }));
     } catch (e) {
       return { ok: false, detail: (e as Error).message };
     }
   }
 
-  const result = await run("git", ["clone", cloneUrl, full], path.dirname(full));
+  const result = await run("git", ["-c", "protocol.ext.allow=never", "-c", "protocol.file.allow=never", "clone", "--", cloneUrl, full], path.dirname(full));
   return {
     ok: result.ok,
     detail: redact(result.ok ? `cloned into ${input.dir}` : result.stderr.trim(), ref),
@@ -183,11 +212,18 @@ export async function githubPush(root: string, input: GithubPushInput): Promise<
 
   let token: string;
   try {
-    token = resolveCredential(ref);
+    token = resolveCredential(ref, { allowGithub: true });
   } catch (e) {
     return { ok: false, detail: (e as Error).message };
   }
-  const authedUrl = withEmbeddedToken(originalUrl, token);
+  let authedUrl: string;
+  try {
+    authedUrl = withEmbeddedToken(originalUrl, token);
+  } catch (e) {
+    return { ok: false, detail: redact((e as Error).message, ref) };
+  }
+  const badRef = (input.branch && validateRefName(input.branch)) || validateRefName(remote);
+  if (badRef) return { ok: false, detail: badRef };
 
   try {
     await run("git", ["remote", "set-url", remote, authedUrl], full);

@@ -1,5 +1,6 @@
 // xcoder:version 2 | xcoder:task task-456d3f | xcoder:updated 2026-08-03T15:41:37.782Z | xcoder:subtask code-st-97a4d4
 import { promises as fs } from "node:fs";
+import { resolveInWorkspaceSafe } from "./workspace-path.js";
 import path from "node:path";
 import { getOrBuildIndex, upsertEntry, toPosixPath } from "./workspace-index.js";
 import { indexGlobTool } from "./search-tools.js";
@@ -96,20 +97,14 @@ export type SedToolResult =
 // ── Constants ────────────────────────────────────────────────────────────
 
 const ALLOWED_FLAGS = new Set(["g", "i", "m", "s"]);
+const MAX_PATTERN_LENGTH = 500;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 class WorkspaceEscapeError extends Error {}
 
 function resolveInWorkspace(root: string, relPath: string): string {
-  const full = path.resolve(root, relPath);
-  const normalizedRoot = path.resolve(root) + path.sep;
-  if (full + path.sep !== normalizedRoot && !full.startsWith(normalizedRoot)) {
-    throw new WorkspaceEscapeError(
-      `path "${relPath}" resolves outside the workspace root — refusing.`
-    );
-  }
-  return full;
+  return resolveInWorkspaceSafe(root, relPath, (m) => new WorkspaceEscapeError(m));
 }
 
 // ── Input Validation ─────────────────────────────────────────────────────
@@ -192,6 +187,14 @@ function validateInput(input: SedToolInput): string | null {
 
   // Regex validation (if pattern provided)
   if (input.pattern) {
+    if (input.pattern.length > MAX_PATTERN_LENGTH) {
+      return `invalid_regex: pattern is ${input.pattern.length} chars (max ${MAX_PATTERN_LENGTH}).`;
+    }
+    // Crude catastrophic-backtracking screen: a quantified group that itself contains a
+    // quantifier, e.g. (a+)+  (.*)*  (\\w+\\s*)+ — the classic ReDoS shape.
+    if (/\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)[+*{]/.test(input.pattern)) {
+      return "invalid_regex: nested quantifiers (e.g. '(a+)+') risk catastrophic backtracking; simplify the pattern.";
+    }
     try {
       new RegExp(input.pattern, input.flags ?? "");
     } catch (e) {

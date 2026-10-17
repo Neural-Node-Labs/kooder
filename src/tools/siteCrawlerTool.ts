@@ -1,5 +1,6 @@
 // xcoder:version 2 | xcoder:task task-456d3f | xcoder:updated 2026-08-03T16:08:43.709Z | xcoder:subtask code-st-97a4d4
 import * as cheerio from "cheerio";
+import { safeFetch } from "./net-policy.js";
 
 export interface SitePage {
   url: string;
@@ -211,13 +212,12 @@ async function fetchPage(url: string): Promise<{ title: string; links: string[];
   const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
   try {
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       signal: controller.signal,
       headers: {
-        "User-Agent": "xcoder-site-crawler/1.0",
+        "User-Agent": "kooder-site-crawler/1.0",
         Accept: "text/html,application/xhtml+xml",
       },
-      redirect: "follow",
     });
 
     if (!res.ok) {

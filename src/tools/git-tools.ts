@@ -79,6 +79,10 @@ export async function gitDiffTool(root: string, input: GitDiffInput = {}): Promi
     };
   }
 
+  if (input.ref && input.ref.trim().startsWith("-")) {
+    return { ok: false, code: "git_error", error: `invalid ref "${input.ref}": refs must not start with '-'`, stderr: "" };
+  }
+
   const args: string[] = [];
   if (input.rawDiff) {
     args.push("diff");

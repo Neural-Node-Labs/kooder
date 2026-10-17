@@ -1,4 +1,5 @@
 import { resolveCredential, redact } from "./credential.js";
+import { checkRequestAllowed, safeFetch } from "./net-policy.js";
 
 /**
  * Declarative test steps only — the model describes *what* to do, this
@@ -48,7 +49,7 @@ export async function runApiTest(input: ApiTestInput): Promise<PlaywrightToolRes
     headers["Authorization"] = `Bearer ${resolveCredential(input.credentialRef)}`;
   }
   try {
-    const res = await fetch(input.url, {
+    const res = await safeFetch(input.url, {
       method: input.method,
       headers,
       body: input.body !== undefined ? JSON.stringify(input.body) : undefined,
@@ -97,11 +98,19 @@ export async function runUiTest(input: UiTestInput): Promise<PlaywrightToolResul
   }
 
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const context = await browser.newContext();
+  // Every request (navigation, redirect, sub-resource) goes through the shared URL policy.
+  await context.route("**/*", (route: { request(): { url(): string; isNavigationRequest(): boolean }; abort(reason?: string): Promise<void>; continue(): Promise<void> }) => {
+    const why = checkRequestAllowed(route.request().url(), { navigation: route.request().isNavigationRequest() });
+    return why ? route.abort("blockedbyclient") : route.continue();
+  });
+  const page = await context.newPage();
   const stepResults: { op: string; ok: boolean; note: string }[] = [];
   let overallOk = true;
 
   try {
+    const blocked = checkRequestAllowed(input.url, { navigation: true });
+    if (blocked) throw new Error(blocked);
     await page.goto(input.url, { waitUntil: "domcontentloaded" });
     stepResults.push({ op: "goto", ok: true, note: input.url });
 
@@ -109,6 +118,10 @@ export async function runUiTest(input: UiTestInput): Promise<PlaywrightToolResul
       try {
         switch (step.op) {
           case "goto":
+            {
+              const why = checkRequestAllowed(step.url, { navigation: true });
+              if (why) throw new Error(why);
+            }
             await page.goto(step.url, { waitUntil: "domcontentloaded" });
             stepResults.push({ op: "goto", ok: true, note: step.url });
             break;

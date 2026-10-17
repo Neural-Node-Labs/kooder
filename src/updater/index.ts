@@ -1,7 +1,7 @@
 /** Auto-Update Module — §3.5 of design-desktop-installer.md */
 
 import { createWriteStream, createReadStream } from "node:fs";
-import { unlink, mkdir } from "node:fs/promises";
+import { unlink, mkdtemp } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -81,7 +81,7 @@ export async function checkForUpdate(opts: UpdaterOptions): Promise<UpdateCheckR
     const response = await fetch(url, {
       headers: {
         Accept: "application/vnd.github+json",
-        "User-Agent": `xcoder-updater/${opts.currentVersion}`,
+        "User-Agent": `kooder-updater/${opts.currentVersion}`,
       },
     });
 
@@ -118,8 +118,11 @@ export async function downloadAndApplyUpdate(
   downloadUrl: string,
   sha256Url: string,
 ): Promise<void> {
-  const tmpDir = path.join(os.tmpdir(), "xcoder-update");
-  await mkdir(tmpDir, { recursive: true });
+  for (const u of [downloadUrl, sha256Url]) {
+    const parsed = new URL(u);
+    if (parsed.protocol !== "https:") throw new Error(`Refusing non-https update URL: ${u}`);
+  }
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "kooder-update-")); // private, unpredictable dir
 
   const ext = getPlatformExtension();
   const installerPath = path.join(tmpDir, `xcoder-update.${ext}`);
@@ -132,13 +135,18 @@ export async function downloadAndApplyUpdate(
     const fileStream = createWriteStream(installerPath);
     await pipeline(response.body!, fileStream);
 
+    // Fail CLOSED: an installer that runs elevated must have a verified checksum.
     const shaResponse = await fetch(sha256Url);
-    if (shaResponse.ok) {
-      const expectedHash = (await shaResponse.text()).trim().split(/\s+/)[0];
-      const actualHash = await sha256stream(installerPath);
-      if (expectedHash !== actualHash) {
-        throw new Error(`SHA256 mismatch`);
-      }
+    if (!shaResponse.ok) {
+      throw new Error(`Checksum unavailable (${shaResponse.status}) — refusing to install an unverified update`);
+    }
+    const expectedHash = (await shaResponse.text()).trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+    if (!/^[0-9a-f]{64}$/.test(expectedHash)) {
+      throw new Error("Checksum file is malformed — refusing to install");
+    }
+    const actualHash = await sha256stream(installerPath);
+    if (expectedHash !== actualHash) {
+      throw new Error("SHA256 mismatch");
     }
 
     if (process.platform === "win32") {

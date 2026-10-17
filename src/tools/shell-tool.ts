@@ -14,14 +14,14 @@ export type { ShellResult } from "./shell-result.js";
  * not a substitute for it.
  */
 const DENYLIST_PATTERNS: RegExp[] = [
-  /\brm\s+-rf\s+\/(?:\s|$)/, // rm -rf /
-  /\brm\s+-rf\s+~(?:\s|$)/, // rm -rf ~
+  /\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR][a-zA-Z]*\s+(?:--\s+)?(?:\/|~|\$HOME|"\$HOME")(?:\*|\/\*)?(?:\s|$)/, // rm -rf / ~ /* $HOME (any flag order)
+  /\brm\s+(?:--recursive|--force)\b.*\s(?:\/|~)(?:\s|$)/,
   /\bmkfs\b/,
-  /:\(\)\{.*:\|:.*\};:/, // fork bomb
+  /:\(\)\s*\{.*:\|:.*\};\s*:/, // fork bomb
   /\bdd\s+if=.*of=\/dev\/(sd|nvme|hd)/,
   /\bchmod\s+-R\s+777\s+\//,
-  /\bcurl\b.*\|\s*sh\b/, // pipe-to-shell from a URL — force an explicit review step instead
-  />\s*\/dev\/sd/,
+  /\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/, // pipe-to-shell from a URL — force an explicit review step instead
+  />\s*\/dev\/(sd|nvme|hd)/,
 ];
 
 /**
