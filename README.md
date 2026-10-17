@@ -1,4 +1,4 @@
-<!-- xcoder:version 12 | xcoder:task task-81af05 | xcoder:updated 2026-10-17T13:29:38.376Z | xcoder:subtask code-st-f1c53a -->
+<!-- xcoder:version 15 | xcoder:task litecoder-1792251160590 | xcoder:updated 2026-10-17T15:36:35.107Z | xcoder:subtask update-readme -->
 # Kooder
 
 Kooder is a command-line worker orchestrator. You give it one task description plus a list of
@@ -8,19 +8,21 @@ retries — and prints an aggregated report.
 There is exactly one worker-orchestrator, one agent shape, and a workspace index that acts as the
 source of truth for which files exist. Everything else that used to live in this repository (the
 SDLC stage tree, the instance swarm, the backlog, the role-specific agents, and the tools that
-dispatched them) was removed in the rebrand that produced Kooder v3. See
-[What changed in the Kooder rebrand](#what-changed-in-the-kooder-rebrand).
+dispatched them) was removed in the rebrand that produced Kooder v3. What survived is recorded
+under [Known follow-ups](#known-follow-ups).
 
-- Package: `kooder-cli` v3.0.0 — bins `kooder` and `worker` (both `./dist/cli-worker.js`)
+- Package: `kooder-cli` v3.0.0
+- Bins: `kooder` and `worker` (both `./dist/cli-worker.js`), plus `litecoder`
+  (`./dist/litecoder/cli.js` — see [litecoder](#litecoder))
 - Runtime: Node >= 20, ESM
-- Entrypoint: `src/cli-worker.ts`
+- Entrypoints: `src/cli-worker.ts`, `src/litecoder/cli.ts`
 
 ## Install
 
 ```bash
 npm install
 npm run build        # tsc -p tsconfig.json
-npm run kooder:link  # or: npm link — puts `kooder` and `worker` on your PATH
+npm run kooder:link  # or: npm link — puts `kooder`, `worker` and `litecoder` on your PATH
 ```
 
 Without linking, run it straight from source:
@@ -90,6 +92,8 @@ Rules worth knowing:
 - Secrets passed on the command line are visible in shell history and the process table; prefer
   `--config -` and expect a one-line warning when a secret-named token arrives via argv.
 
+A worked walkthrough of these rules lives in [`docs/config-command.md`](docs/config-command.md).
+
 ### Examples
 
 ```bash
@@ -116,6 +120,43 @@ kooder run --task "docs pass" --subtasks subtasks.json --json > report.json
 
 Ctrl+C aborts **new** waves only — in-flight agents finish naturally. There is no real-time
 cancellation of an in-progress LLM call; that is deliberate.
+
+## litecoder
+
+`litecoder` is a second, additive CLI shipped in the same package. It takes **one positional
+goal** instead of `run --task/--subtask`, plans it with a tool-less Master Orchestrator, then
+delegates the plan's subtasks to the same worker engine:
+
+```bash
+litecoder "add a health endpoint"
+litecoder "write a function to calculate the factorial of a number" --json > report.json
+
+# without linking, straight from source:
+npx tsx src/litecoder/cli.ts "add a health endpoint"
+```
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `[goal]` | One sentence describing what to build. Required (usage error without it). | — |
+| `--secure` | Enforce `secure-architect` bylaws: inject them into gated prompts and block success on an unreviewed/violating finding. | off |
+| `--concurrency <n>` | Max in-flight sub agents. | `3` |
+| `--max-attempts <n>` | Total attempts per subtask. | `2` |
+| `--max-plan-steps <n>` | Planner iterations before giving up. | `3` |
+| `--max-subtasks <n>` | Plan size cap (hard cap 16). | `8` |
+| `--workspace <dir>` | Workspace root. | `process.cwd()` |
+| `--model <name>` | Overrides the configured LLM model. | — |
+| `--task-id <id>` | Explicit run id. | `litecoder-<timestamp>` |
+| `--json` | Machine output: the report only, nothing else on stdout. | `false` |
+| `--quiet` | Suppress progress notes. | `false` |
+| `--no-color` | Disable colour output. | colour on |
+
+The planner is structurally tool-less (`NO_TOOLS` in `src/litecoder/no-tools.ts`); if it needs
+something done, it emits a subtask instead. A rejected or unparseable plan fails closed — zero
+subtasks are dispatched. Exit codes match `kooder` (`2` for usage errors, `1` for a failed run,
+`0` otherwise).
+
+Rationale, file-by-file mapping and design tradeoffs live in [`docs/litecoder.md`](docs/litecoder.md);
+the original brief is [`task1.md`](task1.md).
 
 ## How a run works
 
@@ -170,9 +211,11 @@ rename:
 | `KOODER_MODEL` | Overrides `model` only. |
 | `KOODER_EXTERNAL_SKILLS` | Boolean flag (`true`/`1`/`yes`) that enables loading external skills. |
 
-`.env` is loaded from the app directory, `KOODER_HOME`, and the current working directory (cwd
-last, with `override: true`), and `~/.kooder/config.json` is applied on top of that — but the real
-shell environment still beats both.
+`.env` is loaded from the app directory, `$KOODER_HOME`, and `~/.kooder/.env` first, then from the
+current working directory. Every candidate is filtered against the real shell environment, so a
+`.env` can never override a variable you actually exported — the cwd file is untrusted input that
+ships with whatever repo you cloned. `~/.kooder/config.json` is applied after the `.env` files, so
+precedence is **shell environment > `config.json` > cwd `.env` > app/home/`~/.kooder` `.env`**.
 
 ### State directory
 
@@ -198,31 +241,38 @@ Resolution order in `resolveStateDir(workspaceRoot)`:
 5. Otherwise `.kooder`.
 
 The resolved root is used for **both reads and writes**: no split-brain, and no automatic migration of your data. When a legacy directory is in use, `kooder` prints a one-time notice naming it; migrate with `mv .koober .kooder` (or `mv .xcoder .kooder`) whenever you like.
-
-
-
 ## Development
 
 ```bash
 npm run typecheck    # tsc --noEmit -p tsconfig.json
-npm test             # vitest run
+npm run build        # tsc -p tsconfig.json
+npm test             # npm run check:brand && vitest run
+npm run check:brand  # brand-residue gate only (scripts/check-brand-residue.mjs)
 npm run regression   # alias of npm test
 ```
 
-Current gate: **70 test files passed, 1 skipped; 1344 tests passed, 30 skipped; 0 failures** (71 files / 1374 tests),
-with `npm run typecheck` clean.
+As recorded on 2026-10-17, `npm run typecheck` is clean and `npx vitest run` reports
+**76 of 82 test files passing (5 failing, 1 skipped); 1454 of 1492 tests passing (8 failing, 30
+skipped)**. The gate is **not** green: `npm test` currently stops at the `check:brand` pre-step,
+which flags one residue hit at `src/config/loadConfig.ts:33` (the `KOOBER`/`XCODER`/`RONIN`
+compatibility regex). The same line is also what fails
+`src/agents/kooder-rebrand.test.ts > passes the brand-residue gate`. Other known failures at this
+commit are in `src/config/config-command.test.ts`, `src/config/project-config-trust.test.ts`,
+`src/tools/security-hardening.test.ts` (symlink cases, Windows) and `src/updater/index.test.ts`.
+Run `npx vitest run` to see the current numbers rather than trusting the figures above.
 
 Two intent oracles guard the rebrand:
 
 - `src/agents/worker-only-architecture.test.ts` — one agent tree, no regrowth of the deleted role
-  agents, the worker CLI as sole entrypoint, the `kooder` package name/description, the
-  `kooder`+`worker` bins (and no `koober`), and `.kooder` as the default state dir with a single
-  path factory (`kooder-paths.ts`; `koober-paths.ts` must not exist).
+  agents, the worker CLI as the sole worker entrypoint, the `kooder` package name/description, the
+  exact three-bin set (`kooder`, `worker`, `litecoder` — and no `koober`), and `.kooder` as the
+  default state dir with a single path factory (`kooder-paths.ts`; `koober-paths.ts` must not
+  exist). The `litecoder` assertion is the one deliberate amendment made when that CLI landed.
 - `src/agents/kooder-rebrand.test.ts` (10 tests) — the user-facing surface: root help reads
   `Usage: kooder …` and says "Kooder" with neither retired brand name, `kooder run --help`,
   `--version` equals `KOODER_VERSION` and is semver, `package.json.version` is in lockstep with it,
   `KOODER_BUILD_TIMESTAMP` round-trips as ISO-8601, the version module exports no retired alias,
-  and `npm run check:brand` exits 0.
+  all three bins are published with no pre-rebrand alias, and `npm run check:brand` exits 0.
 
 A regression that re-adds a second agent tree or the old brand fails there first. The legacy brand
 names are assembled from parts inside the rebrand test so the file itself stays off the residue
@@ -235,23 +285,51 @@ Ignored optional fixtures (e.g. an absent `skills/` directory) are skipped, not 
 
 Verified against the tree on 2026-10-17; anything already fixed was removed from this list.
 
-- **Stale doc comments** — `src/config/loadConfig.ts:100` and `:265` still describe
+- **Stale doc comments** — `src/config/loadConfig.ts:134` and `:356` still describe
   `.xcoder/config/llm.yaml` and `~/.xcoder/config.json`. The code resolves `.kooder` in both places
   (`RELATIVE_CONFIG_PATH`, and `userConfigPath()` in `src/config/user-config.ts:46`). Tracked as
   `.xcoder/defects/defect0001.md`; comments are invisible to the residue gate, which only scans for
   the `koober` tier.
-- **User-Agent** — `src/tools/github-tool.ts:67` still sends `User-Agent: xcoder-sdlc-cli`.
+- **User-Agent** — `src/tools/github-tool.ts:93` still sends `User-Agent: xcoder-sdlc-cli`.
   Deliberately not renamed in this pass: it is an outbound identifier, so changing it deserves its
   own change and a decision about whether any server keys off it.
-- **Unused type surface** — `src/types.ts:27` (`Role`) and `:48` (`EngineName`, including
+- **Unused type surface** — `src/types.ts:53` (`Role`) and `:60` (`EngineName`, including
   `rewoo-v1` / `plan-execute-v1` / `reflexion-v1`) are retained for prompt routing even though only
-  `react-v1` and the worker path are exercised.
-- **Legacy `RONIN_*` shim** — `src/config/loadConfig.ts:71-77` maps `RONIN_*` onto `XCODER_*`, i.e.
+  `react-v1` and the worker path are exercised. The `ROLES` tuple at `src/types.ts:36` is now also
+  read at a runtime trust boundary (`z.enum(ROLES)` in `src/litecoder/plan-schema.ts`).
+- **Legacy `RONIN_*` shim** — `src/config/loadConfig.ts:104-111` maps `RONIN_*` onto `XCODER_*`, i.e.
   the oldest alias tier now hops through the deprecated middle tier instead of mapping straight to
   `KOODER_*`. Works, but a two-hop alias is harder to reason about than a direct one.
 - **State-directory migration is manual** — there is no auto-migration; see
   [State directory](#state-directory) for the resolution order and the `mv` command.
+- **Empty `LICENSE.md`** — the root holds both `LICENSE` (MIT, Neural Node Labs) and a `LICENSE.md`
+  whose entire content is blank lines. `LICENSE` is the operative file; the stub should be deleted
+  or filled in so it cannot be mistaken for the real terms.
+- **Stray root files** — `x[1])))` and `x[1]).join('` are empty files left behind by a mis-quoted
+  shell command. Nothing references them; they should be deleted.
 
 The earlier entries about `.gitignore`, `config.example.json`, prompt text and `llm/factory.ts` are
 resolved and were removed: `.gitignore` now ignores `.kooder/` and `.koober/`, `config.example.json`
 sets only `KOODER_EXTERNAL_SKILLS`, prompts say "Kooder", and `factory.ts` carries no legacy paths.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). Copyright (c) 2026 Neural Node Labs.
+
+## Contributing and getting help
+
+There is no `CONTRIBUTING.md` and no issue tracker configured in this repository; talk to the
+maintainers directly. Before opening a change:
+
+1. `npm install && npm run typecheck` — must be clean.
+2. `npx vitest run` — run the suite directly rather than `npm test`, which currently stops at the
+   `check:brand` pre-step (see [Known follow-ups](#known-follow-ups)).
+3. `node scripts/check-brand-residue.mjs` — a new hit means either the change reintroduced a retired
+   brand name, or it is a lawful shim that needs an `ALLOWLIST` entry *with a reason* in
+   `scripts/check-brand-residue.mjs`.
+4. Keep the intent oracles honest: `src/agents/worker-only-architecture.test.ts` and
+   `src/agents/kooder-rebrand.test.ts` encode the architecture and branding rules. Update them only
+   when the rule itself changes, and say why in the commit.
+
+For the architecture rationale behind `litecoder`, read [`docs/litecoder.md`](docs/litecoder.md).
+
